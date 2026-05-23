@@ -11,10 +11,12 @@
             "id": "f294c4261c09587c",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "type": "pdf",
+              "state": {
+                "file": "backend/uploads/Personal Ai Cloud Progress Report May 2026.pdf"
+              },
+              "icon": "lucide-file-text",
+              "title": "Personal Ai Cloud Progress Report May 2026"
             }
           }
         ]
@@ -176,7 +178,7 @@
       "bases:Create new base": false
     }
   },
-  "active": "f294c4261c09587c",
+  "active": "f03ff14ede67cfea",
   "lastOpenFiles": [
     "media/downloads.png.md",
     "frontend/node_modules/source-map-js/README.md",

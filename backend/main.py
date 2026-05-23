@@ -1,9 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 import requests
 import shutil
+import json
 
 from rag import process_pdf, search_documents
 
@@ -18,13 +20,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Request model
+# REQUEST MODEL
 class ChatRequest(BaseModel):
     prompt: str
 
 
-# Home route
+# HOME ROUTE
 @app.get("/")
 def home():
 
@@ -33,14 +34,20 @@ def home():
     }
 
 
-# CHAT ROUTE (RAG)
+# STREAMING CHAT ROUTE
 @app.post("/chat")
 def chat(req: ChatRequest):
 
-    # Retrieve context from PDFs
-    context = search_documents(req.prompt)
+    # SEARCH DOCUMENTS
+    search_result = search_documents(
+        req.prompt
+    )
 
-    # Strong grounded prompt
+    context = search_result["context"]
+
+    sources = search_result["sources"]
+
+    # FINAL PROMPT
     final_prompt = f"""
 You are an AI assistant.
 
@@ -53,36 +60,82 @@ say:
 CONTEXT:
 {context}
 
+SOURCES:
+{sources}
+
 QUESTION:
 {req.prompt}
 
 ANSWER:
 """
 
-    # Send to Ollama
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={
-            "model": "llama3.2",
-            "prompt": final_prompt,
-            "stream": False
-        }
+    # STREAM GENERATOR
+    def generate():
+
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "llama3.2",
+                "prompt": final_prompt,
+                "stream": True
+            },
+            stream=True
+        )
+
+        # STREAM TOKENS
+        for line in response.iter_lines():
+
+            if line:
+
+                try:
+
+                    decoded_line = line.decode(
+                        "utf-8"
+                    )
+
+                    json_data = json.loads(
+                        decoded_line
+                    )
+
+                    token = json_data.get(
+                        "response",
+                        ""
+                    )
+
+                    yield token
+
+                except Exception as e:
+
+                    print(e)
+
+        # APPEND SOURCES
+        yield "\n\nSources:\n"
+
+        for source in sources:
+
+            yield f"- {source}\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain"
     )
 
-    return response.json()
 
-
-# PDF Upload Route
+# PDF UPLOAD ROUTE
 @app.post("/upload")
 def upload_pdf(file: UploadFile = File(...)):
 
-    # Save uploaded file
+    # SAVE FILE
     file_path = f"uploads/{file.filename}"
 
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
 
-    # Process PDF
+        shutil.copyfileobj(
+            file.file,
+            buffer
+        )
+
+    # PROCESS PDF
     result = process_pdf(file_path)
 
     return {
