@@ -1,12 +1,30 @@
 import { useState, useEffect } from "react";
+import { Document, Page } from "react-pdf";
+import { pdfjs } from "react-pdf";
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 function App() {
+
+  // USER CONTEXT
+  const [currentUser, setCurrentUser] =
+    useState(
+      localStorage.getItem("username")
+    );
+
+  const chatStorageKey =
+    `ai_chats_${currentUser}`;
+
+  const activeChatKey =
+    `current_chat_id_${currentUser}`;
 
   // LOAD SAVED CHATS
   const [chats, setChats] = useState(() => {
 
     const savedChats =
-      localStorage.getItem("ai_chats");
+      localStorage.getItem(
+        chatStorageKey
+      );
 
     return savedChats
       ? JSON.parse(savedChats)
@@ -25,7 +43,7 @@ function App() {
 
       const savedId =
         localStorage.getItem(
-          "current_chat_id"
+          activeChatKey
         );
 
       return savedId
@@ -36,9 +54,47 @@ function App() {
   // INPUT
   const [prompt, setPrompt] = useState("");
 
+  // AUTH
+  const [username, setUsername] =
+    useState("");
+
+  const [password, setPassword] =
+    useState("");
+
+  const [isLoggedIn, setIsLoggedIn] =
+    useState(
+
+      localStorage.getItem("token")
+        ? true
+        : false
+    );
+
+  const [isSignup, setIsSignup] =
+    useState(false);
+
   // PDF UPLOAD MESSAGE
   const [uploadMessage, setUploadMessage] =
     useState("");
+
+  // DOCUMENTS
+  const [documents, setDocuments] =
+    useState([]);
+
+  // SELECTED DOCUMENT
+  const [
+    selectedDocument,
+    setSelectedDocument
+  ] = useState(null);
+
+  // PDF VIEWER
+  const [selectedPdf, setSelectedPdf] =
+    useState(null);
+
+  const [currentPage, setCurrentPage] =
+    useState(1);
+
+  const [numPages, setNumPages] =
+    useState(null);
 
   // FIND CURRENT CHAT
   const currentChat = chats.find(
@@ -49,7 +105,7 @@ function App() {
   useEffect(() => {
 
     localStorage.setItem(
-      "ai_chats",
+      chatStorageKey,
       JSON.stringify(chats)
     );
 
@@ -59,11 +115,61 @@ function App() {
   useEffect(() => {
 
     localStorage.setItem(
-      "current_chat_id",
+      activeChatKey,
       currentChatId
     );
 
   }, [currentChatId]);
+
+  // LOAD DOCUMENTS ON START
+  useEffect(() => {
+
+    fetchDocuments();
+
+  }, []);
+
+  // RESET CHATS WHEN USER CHANGES
+  useEffect(() => {
+
+    const savedChats =
+      localStorage.getItem(
+        chatStorageKey
+      );
+
+    if (savedChats) {
+
+      setChats(
+        JSON.parse(savedChats)
+      );
+
+    } else {
+
+      setChats([
+        {
+          id: 1,
+          title: "New Chat",
+          messages: []
+        }
+      ]);
+    }
+
+    const savedActiveChat =
+      localStorage.getItem(
+        activeChatKey
+      );
+
+    if (savedActiveChat) {
+
+      setCurrentChatId(
+        Number(savedActiveChat)
+      );
+
+    } else {
+
+      setCurrentChatId(1);
+    }
+
+  }, [currentUser]);
 
   // CREATE NEW CHAT
   const createNewChat = () => {
@@ -115,6 +221,137 @@ function App() {
     }
   };
 
+  // HANDLE AUTH
+  const handleAuth = async () => {
+
+    try {
+
+      const endpoint = isSignup
+        ? "signup"
+        : "login";
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/${endpoint}`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+
+            username,
+
+            password
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      // LOGIN
+      if (data.access_token) {
+
+        localStorage.setItem(
+          "token",
+          data.access_token
+        );
+
+        localStorage.setItem(
+          "username",
+          username
+        );
+
+        setCurrentUser(username);
+
+        setIsLoggedIn(true);
+
+      } else {
+
+        alert(data.message);
+      }
+
+    } catch (error) {
+
+      console.log(error);
+
+    }
+  };
+
+  // FETCH DOCUMENTS
+  const fetchDocuments = async () => {
+
+    try {
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/documents/${currentUser}`
+      );
+
+      const data = await response.json();
+
+      setDocuments(data.documents);
+
+    } catch (error) {
+
+      console.log(error);
+
+    }
+  };
+
+  // VIEW DOCUMENT
+  const viewDocument = (filename) => {
+
+    const url =
+      `http://127.0.0.1:8000/uploads/${filename}`;
+
+    window.open(url, "_blank");
+  };
+
+  // DELETE DOCUMENT
+  const deleteDoc = async (filename) => {
+
+    try {
+
+      await fetch(
+        `http://127.0.0.1:8000/documents/${filename}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      setDocuments((prev) =>
+        prev.filter((doc) => doc !== filename)
+      );
+
+    } catch (error) {
+
+      console.log(error);
+
+    }
+  };
+
+  // HANDLE PDF LOAD SUCCESS
+  const onDocumentLoadSuccess = ({ numPages }) => {
+    setNumPages(numPages);
+    setCurrentPage(1);
+  };
+
+  // LOGOUT
+  const logout = () => {
+
+    localStorage.removeItem("token");
+
+    localStorage.removeItem(
+      "username"
+    );
+
+    setCurrentUser(null);
+
+    setIsLoggedIn(false);
+  };
+
   // MULTIPLE PDF UPLOAD
   const uploadPDF = async (event) => {
 
@@ -135,6 +372,11 @@ function App() {
 
         formData.append("file", file);
 
+        formData.append(
+          "username",
+          currentUser
+        );
+
         await fetch(
           "http://127.0.0.1:8000/upload",
           {
@@ -147,6 +389,8 @@ function App() {
       setUploadMessage(
         "All PDFs uploaded successfully"
       );
+
+      fetchDocuments();
 
     } catch (error) {
 
@@ -213,7 +457,13 @@ function App() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            prompt: currentPrompt
+
+            username: currentUser,
+
+            prompt: currentPrompt,
+
+            selected_document:
+              selectedDocument
           })
         }
       );
@@ -268,6 +518,133 @@ function App() {
     }
   };
 
+  // LOGIN SCREEN
+  if (!isLoggedIn) {
+
+    return (
+
+      <div style={{
+        height: "100vh",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "#0f172a",
+        color: "white",
+        fontFamily: "Arial"
+      }}>
+
+        <div style={{
+          width: "350px",
+          backgroundColor: "#1e293b",
+          padding: "30px",
+          borderRadius: "20px"
+        }}>
+
+          <h1 style={{
+            textAlign: "center",
+            marginBottom: "20px"
+          }}>
+            Personal AI Cloud
+          </h1>
+
+          <h2 style={{
+            textAlign: "center",
+            marginBottom: "20px"
+          }}>
+            {
+              isSignup
+                ? "Signup"
+                : "Login"
+            }
+          </h2>
+
+          <input
+            type="text"
+            placeholder="Username"
+
+            value={username}
+
+            onChange={(e) =>
+              setUsername(e.target.value)
+            }
+
+            style={{
+              width: "100%",
+              padding: "12px",
+              marginBottom: "15px",
+              borderRadius: "10px",
+              border: "none",
+              boxSizing: "border-box"
+            }}
+          />
+
+          <input
+            type="password"
+            placeholder="Password"
+
+            value={password}
+
+            onChange={(e) =>
+              setPassword(e.target.value)
+            }
+
+            style={{
+              width: "100%",
+              padding: "12px",
+              marginBottom: "20px",
+              borderRadius: "10px",
+              border: "none",
+              boxSizing: "border-box"
+            }}
+          />
+
+          <button
+            onClick={handleAuth}
+
+            style={{
+              width: "100%",
+              padding: "12px",
+              borderRadius: "10px",
+              border: "none",
+              backgroundColor: "#2563eb",
+              color: "white",
+              fontWeight: "bold",
+              cursor: "pointer"
+            }}
+          >
+            {
+              isSignup
+                ? "Signup"
+                : "Login"
+            }
+          </button>
+
+          <p
+            onClick={() =>
+              setIsSignup(!isSignup)
+            }
+
+            style={{
+              marginTop: "20px",
+              textAlign: "center",
+              cursor: "pointer"
+            }}
+          >
+
+            {
+              isSignup
+                ? "Already have an account? Login"
+                : "No account? Signup"
+            }
+
+          </p>
+
+        </div>
+
+      </div>
+    );
+  }
+
   return (
 
     <div style={{
@@ -305,6 +682,25 @@ function App() {
           }}
         >
           + New Chat
+        </button>
+
+        {/* LOGOUT */}
+        <button
+          onClick={logout}
+
+          style={{
+            width: "100%",
+            padding: "10px",
+            borderRadius: "10px",
+            marginBottom: "20px",
+            cursor: "pointer",
+            border: "none",
+            backgroundColor: "#dc2626",
+            color: "white",
+            fontWeight: "bold"
+          }}
+        >
+          Logout
         </button>
 
         {/* CHAT LIST */}
@@ -362,8 +758,172 @@ function App() {
 
           </div>
         ))}
+        <hr style={{
+          margin: "20px 0",
+          borderColor: "#333"
+        }} />
 
+        <h3 style={{
+          marginBottom: "15px"
+        }}>
+          Knowledge Base
+        </h3>
+
+        <div>
+
+          {documents.map((doc, index) => (
+
+            <div
+              key={index}
+              style={{
+                backgroundColor: "#1e293b",
+                padding: "10px",
+                borderRadius: "10px",
+                marginBottom: "10px",
+                fontSize: "14px",
+                overflowWrap: "break-word",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }}
+            >
+              <span
+                onClick={() =>
+                  setSelectedDocument(doc)
+                }
+                style={{
+                  cursor: "pointer",
+                  flex: 1,
+                  color:
+                    selectedDocument === doc
+                      ? "#60a5fa"
+                      : "white"
+                }}
+              >
+                📄 {doc}
+              </span>
+              <button
+                onClick={() => deleteDoc(doc)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#ef4444",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  padding: "0",
+                  marginLeft: "10px"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+
+        </div>
       </div>
+
+      {/* PDF VIEWER MODAL */}
+      {selectedPdf && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.9)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: "20px"
+        }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            width: "100%",
+            maxWidth: "800px",
+            marginBottom: "20px",
+            color: "white"
+          }}>
+            <h2>{selectedPdf}</h2>
+            <button
+              onClick={() => {
+                setSelectedPdf(null);
+                setCurrentPage(1);
+                setNumPages(null);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "white",
+                fontSize: "24px",
+                cursor: "pointer"
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{
+            backgroundColor: "white",
+            padding: "20px",
+            borderRadius: "10px",
+            maxHeight: "70vh",
+            overflowY: "auto",
+            maxWidth: "800px"
+          }}>
+            <Document
+              file={`http://127.0.0.1:8000/uploads/${selectedPdf}`}
+              onLoadSuccess={onDocumentLoadSuccess}
+            >
+              <Page pageNumber={currentPage} />
+            </Document>
+          </div>
+
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: "15px",
+            marginTop: "20px",
+            color: "white"
+          }}>
+            <button
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage <= 1}
+              style={{
+                padding: "10px 15px",
+                backgroundColor: currentPage <= 1 ? "#666" : "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: "5px",
+                cursor: currentPage <= 1 ? "not-allowed" : "pointer"
+              }}
+            >
+              ← Prev
+            </button>
+            <span>
+              Page {currentPage} of {numPages || "?"}
+            </span>
+            <button
+              onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
+              disabled={currentPage >= numPages}
+              style={{
+                padding: "10px 15px",
+                backgroundColor: currentPage >= numPages ? "#666" : "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: "5px",
+                cursor: currentPage >= numPages ? "not-allowed" : "pointer"
+              }}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MAIN CHAT */}
 
@@ -448,6 +1008,49 @@ function App() {
         <div style={{
           marginTop: "20px"
         }}>
+
+          {/* ACTIVE KNOWLEDGE BASE */}
+          <p style={{ marginBottom: "15px" }}>
+
+            Active Knowledge Base:
+            <br />
+
+            <button
+              onClick={() =>
+                setSelectedDocument(null)
+              }
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #60a5fa",
+                backgroundColor:
+                  !selectedDocument
+                    ? "#60a5fa"
+                    : "transparent",
+                color:
+                  !selectedDocument
+                    ? "white"
+                    : "#60a5fa",
+                cursor: "pointer",
+                marginRight: "10px",
+                marginTop: "8px"
+              }}
+            >
+              All PDFs
+            </button>
+
+            {selectedDocument && (
+              <span
+                style={{
+                  color: "#93c5fd",
+                  fontSize: "14px"
+                }}
+              >
+                Selected: <strong>{selectedDocument}</strong>
+              </span>
+            )}
+
+          </p>
 
           {/* MULTI PDF UPLOAD */}
 

@@ -19,7 +19,10 @@ model = SentenceTransformer(
 )
 
 # PROCESS PDF
-def process_pdf(pdf_path):
+def process_pdf(
+    pdf_path,
+    username
+):
 
     # READ PDF
     reader = PdfReader(pdf_path)
@@ -66,7 +69,8 @@ def process_pdf(pdf_path):
 
             metadatas=[
                 {
-                    "source": pdf_path
+                    "source": pdf_path,
+                    "username": username
                 }
             ],
 
@@ -79,7 +83,14 @@ def process_pdf(pdf_path):
 
 
 # SEARCH DOCUMENTS
-def search_documents(query):
+def search_documents(
+
+    query,
+
+    username,
+
+    selected_document=None
+):
 
     # QUERY EMBEDDING
     query_embedding = model.encode(
@@ -87,13 +98,27 @@ def search_documents(query):
     ).tolist()
 
     # SEARCH CHROMADB
+    where_filter = {
+        "username": username
+    }
+
+    # FILTER SPECIFIC DOCUMENT
+    if selected_document:
+
+        where_filter["source"] = (
+            f"uploads/{username}/"
+            f"{selected_document}"
+        )
+
     results = collection.query(
 
         query_embeddings=[
             query_embedding
         ],
 
-        n_results=5
+        n_results=10,
+
+        where=where_filter
     )
 
     # DOCUMENTS
@@ -128,3 +153,35 @@ def search_documents(query):
         "context": combined_text,
         "sources": sources
     }
+
+
+# DELETE DOCUMENT
+def delete_document(filename):
+
+    results = collection.get()
+
+    ids_to_delete = []
+
+    for i, metadata in enumerate(
+        results["metadatas"]
+    ):
+
+        source = metadata.get(
+            "source",
+            ""
+        )
+
+        if filename in source:
+
+            ids_to_delete.append(
+                results["ids"][i]
+            )
+
+    # DELETE EMBEDDINGS
+    if ids_to_delete:
+
+        collection.delete(
+            ids=ids_to_delete
+        )
+
+    return "Document deleted"
