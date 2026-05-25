@@ -49,3 +49,38 @@ def create_access_token(data):
     )
 
     return encoded_jwt
+
+from fastapi import HTTPException
+from jose import JWTError
+
+# VERIFY TOKEN
+def verify_token(token):
+
+    try:
+
+        payload = jwt.decode(
+
+            token,
+
+            SECRET_KEY,
+
+            algorithms=[ALGORITHM]
+        )
+
+        username = payload.get("sub")
+
+        if username is None:
+
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token"
+            )
+
+        return username
+
+    except JWTError:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )

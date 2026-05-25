@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,13 +11,15 @@ import json
 
 from database import (
     SessionLocal,
-    User
+    User,
+    Chat
 )
 
 from auth import (
     hash_password,
     verify_password,
-    create_access_token
+    create_access_token,
+    verify_token
 )
 
 from rag import (
@@ -45,8 +47,6 @@ app.add_middleware(
 
 # REQUEST MODEL
 class ChatRequest(BaseModel):
-
-    username: str
 
     prompt: str
 
@@ -162,14 +162,121 @@ def login(user: UserRequest):
     }
 
 
+# SAVE CHAT ROUTE
+@app.post("/save-chat")
+def save_chat(
+
+    data: dict,
+
+    authorization: str = Header(...)
+):
+
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
+
+    db = SessionLocal()
+
+    # DELETE OLD CHAT
+    existing_chat = db.query(Chat).filter(
+
+        Chat.id == data["id"]
+
+    ).first()
+
+    if existing_chat:
+
+        existing_chat.title = data["title"]
+
+        existing_chat.messages = json.dumps(
+            data["messages"]
+        )
+
+    else:
+
+        new_chat = Chat(
+
+            id=data["id"],
+
+            username=username,
+
+            title=data["title"],
+
+            messages=json.dumps(
+                data["messages"]
+            )
+        )
+
+        db.add(new_chat)
+
+    db.commit()
+
+    db.close()
+
+    return {
+        "message": "Chat saved"
+    }
+
+
+# LOAD CHATS ROUTE
+@app.get("/load-chats")
+def load_chats(
+
+    authorization: str = Header(...)
+):
+
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
+
+    db = SessionLocal()
+
+    chats = db.query(Chat).filter(
+
+        Chat.username == username
+
+    ).all()
+
+    formatted_chats = []
+
+    for chat in chats:
+
+        formatted_chats.append({
+
+            "id": chat.id,
+
+            "title": chat.title,
+
+            "messages": json.loads(
+                chat.messages
+            )
+        })
+
+    db.close()
+
+    return {
+        "chats": formatted_chats
+    }
+
+
 # STREAMING CHAT ROUTE
 @app.post("/chat")
-def chat(req: ChatRequest):
+def chat(
+
+    req: ChatRequest,
+
+    authorization: str = Header(...)
+):
+
+    # VERIFY TOKEN
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
 
     # SEARCH DOCUMENTS
     search_result = search_documents(
         req.prompt,
-        req.username,
+        username,
         req.selected_document
     )
 
@@ -255,10 +362,15 @@ ANSWER:
 @app.post("/upload")
 def upload_pdf(
 
-    username: str = Form(...),
+    authorization: str = Header(...),
 
     file: UploadFile = File(...)
 ):
+
+    # VERIFY TOKEN
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
 
     # CREATE USER FOLDER
     user_folder = f"uploads/{username}"
@@ -289,8 +401,16 @@ def upload_pdf(
 
 
 # GET DOCUMENTS ROUTE
-@app.get("/documents/{username}")
-def get_documents(username: str):
+@app.get("/documents")
+def get_documents(
+
+    authorization: str = Header(...)
+):
+
+    # VERIFY TOKEN
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
 
     # CHECK user folder
     user_folder = \
@@ -348,4 +468,81 @@ def get_pdf(filename: str):
 
     return {
         "error": "File not found"
+    }
+
+
+# SAVE CHAT ROUTE
+@app.post("/save-chat")
+def save_chat(
+
+    data: dict,
+
+    authorization: str = Header(...)
+):
+
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
+
+    db = SessionLocal()
+
+    # CREATE CHAT
+    new_chat = Chat(
+
+        username=username,
+
+        title=data["title"],
+
+        messages=json.dumps(
+            data["messages"]
+        )
+    )
+
+    db.add(new_chat)
+
+    db.commit()
+
+    db.close()
+
+    return {
+        "message": "Chat saved"
+    }
+
+
+# LOAD CHATS ROUTE
+@app.get("/load-chats")
+def load_chats(
+
+    authorization: str = Header(...)
+):
+
+    token = authorization.split(" ")[1]
+
+    username = verify_token(token)
+
+    db = SessionLocal()
+
+    chats = db.query(Chat).filter(
+        Chat.username == username
+    ).all()
+
+    formatted_chats = []
+
+    for chat in chats:
+
+        formatted_chats.append({
+
+            "id": chat.id,
+
+            "title": chat.title,
+
+            "messages": json.loads(
+                chat.messages
+            )
+        })
+
+    db.close()
+
+    return {
+        "chats": formatted_chats
     }

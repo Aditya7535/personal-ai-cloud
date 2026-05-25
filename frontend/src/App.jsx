@@ -96,6 +96,14 @@ function App() {
   const [numPages, setNumPages] =
     useState(null);
 
+  // CHATS LOADED STATE
+  const [chatsLoaded, setChatsLoaded] =
+    useState(false);
+
+  // GENERATING STATE
+  const [isGenerating, setIsGenerating] =
+    useState(false);
+
   // FIND CURRENT CHAT
   const currentChat = chats.find(
     (chat) => chat.id === currentChatId
@@ -104,12 +112,16 @@ function App() {
   // SAVE CHATS
   useEffect(() => {
 
+    if (!chatsLoaded) return;
+
     localStorage.setItem(
       chatStorageKey,
       JSON.stringify(chats)
     );
 
-  }, [chats]);
+    saveChatsToBackend(chats);
+
+  }, [chats, chatsLoaded]);
 
   // SAVE ACTIVE CHAT
   useEffect(() => {
@@ -128,8 +140,22 @@ function App() {
 
   }, []);
 
+  // LOAD CHATS ON LOGIN
+  useEffect(() => {
+
+    if (isLoggedIn) {
+
+      loadChats();
+    }
+
+  }, [isLoggedIn]);
+
   // RESET CHATS WHEN USER CHANGES
   useEffect(() => {
+
+    setDocuments([]);
+
+    setSelectedDocument(null);
 
     const savedChats =
       localStorage.getItem(
@@ -231,7 +257,7 @@ function App() {
         : "login";
 
       const response = await fetch(
-        `http://127.0.0.1:8000/${endpoint}`,
+        `http://192.168.1.2:8000/${endpoint}`,
         {
           method: "POST",
 
@@ -268,6 +294,10 @@ function App() {
 
         setIsLoggedIn(true);
 
+        loadChats();
+
+        fetchDocuments();
+
       } else {
 
         alert(data.message);
@@ -286,7 +316,12 @@ function App() {
     try {
 
       const response = await fetch(
-        `http://127.0.0.1:8000/documents/${currentUser}`
+        `http://192.168.1.2:8000/documents`,
+        {
+          headers: {
+            "Authorization": `Bearer ${localStorage.getItem("token")}`
+          }
+        }
       );
 
       const data = await response.json();
@@ -304,7 +339,7 @@ function App() {
   const viewDocument = (filename) => {
 
     const url =
-      `http://127.0.0.1:8000/uploads/${filename}`;
+      `http://192.168.1.2:8000/uploads/${filename}`;
 
     window.open(url, "_blank");
   };
@@ -315,7 +350,7 @@ function App() {
     try {
 
       await fetch(
-        `http://127.0.0.1:8000/documents/${filename}`,
+        `http://192.168.1.2:8000/documents/${filename}`,
         {
           method: "DELETE"
         }
@@ -350,6 +385,18 @@ function App() {
     setCurrentUser(null);
 
     setIsLoggedIn(false);
+
+    setChats([
+      {
+        id: 1,
+        title: "New Chat",
+        messages: []
+      }
+    ]);
+
+    setDocuments([]);
+
+    setSelectedDocument(null);
   };
 
   // MULTIPLE PDF UPLOAD
@@ -372,15 +419,13 @@ function App() {
 
         formData.append("file", file);
 
-        formData.append(
-          "username",
-          currentUser
-        );
-
         await fetch(
-          "http://127.0.0.1:8000/upload",
+          "http://192.168.1.2:8000/upload",
           {
             method: "POST",
+            headers: {
+              "Authorization": `Bearer ${localStorage.getItem("token")}`
+            },
             body: formData
           }
         );
@@ -402,10 +447,105 @@ function App() {
     }
   };
 
+  // LOAD CHATS
+  const loadChats = async () => {
+
+    try {
+
+      const response = await fetch(
+        "http://192.168.1.2:8000/load-chats",
+        {
+
+          headers: {
+
+            Authorization:
+              `Bearer ${localStorage.getItem(
+                "token"
+              )}`
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      // IF NO CHATS
+      if (data.chats.length === 0) {
+
+        setChatsLoaded(true);
+
+        setChats([
+          {
+            id: 1,
+            title: "New Chat",
+            messages: []
+          }
+        ]);
+
+        setCurrentChatId(1);
+
+        return;
+      }
+
+      setChats(data.chats);
+
+      setCurrentChatId(
+        data.chats[0].id
+      );
+
+      setChatsLoaded(true);
+
+    } catch (error) {
+
+      console.log(error);
+
+    }
+  };
+
+  // SAVE CHATS TO BACKEND
+  const saveChatsToBackend =
+    async (updatedChats) => {
+
+    if (!updatedChats.length) return;
+
+    try {
+
+      for (const chat of updatedChats) {
+
+        await fetch(
+          "http://192.168.1.2:8000/save-chat",
+          {
+
+            method: "POST",
+
+            headers: {
+
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${localStorage.getItem(
+                  "token"
+                )}`
+            },
+
+            body: JSON.stringify(chat)
+          }
+        );
+      }
+
+    } catch (error) {
+
+      console.log(error);
+
+    }
+  };
+
   // SEND PROMPT
   const sendPrompt = async () => {
 
     if (!prompt.trim()) return;
+
+    setIsGenerating(true);
 
     const currentPrompt = prompt;
 
@@ -450,15 +590,14 @@ function App() {
 
       // STREAMING REQUEST
       const response = await fetch(
-        "http://127.0.0.1:8000/chat",
+        "http://192.168.1.2:8000/chat",
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${localStorage.getItem("token")}`
           },
           body: JSON.stringify({
-
-            username: currentUser,
 
             prompt: currentPrompt,
 
@@ -511,9 +650,13 @@ function App() {
         );
       }
 
+      setIsGenerating(false);
+
     } catch (error) {
 
       console.log(error);
+
+      setIsGenerating(false);
 
     }
   };
@@ -528,28 +671,45 @@ function App() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        backgroundColor: "#0f172a",
+        backgroundColor: "#0a1628",
         color: "white",
-        fontFamily: "Arial"
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
       }}>
 
         <div style={{
-          width: "350px",
-          backgroundColor: "#1e293b",
-          padding: "30px",
-          borderRadius: "20px"
+          width: "380px",
+          backgroundColor: "#1a2f4a",
+          padding: "40px 36px",
+          borderRadius: "16px",
+          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)"
         }}>
 
           <h1 style={{
             textAlign: "center",
-            marginBottom: "20px"
+            marginBottom: "8px",
+            fontSize: "32px",
+            fontWeight: "700",
+            margin: "0 0 8px 0"
           }}>
-            Personal AI Cloud
+            Personal AI
+          </h1>
+          <h1 style={{
+            textAlign: "center",
+            marginBottom: "20px",
+            fontSize: "32px",
+            fontWeight: "700",
+            margin: "0 0 20px 0"
+          }}>
+            Cloud
           </h1>
 
           <h2 style={{
             textAlign: "center",
-            marginBottom: "20px"
+            marginBottom: "24px",
+            fontSize: "16px",
+            fontWeight: "600",
+            color: "#e0e0e0",
+            margin: "0 0 24px 0"
           }}>
             {
               isSignup
@@ -570,12 +730,20 @@ function App() {
 
             style={{
               width: "100%",
-              padding: "12px",
-              marginBottom: "15px",
-              borderRadius: "10px",
-              border: "none",
+              padding: "12px 16px",
+              marginBottom: "16px",
+              borderRadius: "8px",
+              border: "1px solid #3a4a5a",
+              backgroundColor: "#2a3a4a",
+              color: "#e0e0e0",
+              fontSize: "14px",
+              fontFamily: "inherit",
+              outline: "none",
+              transition: "border-color 0.2s ease",
               boxSizing: "border-box"
             }}
+            onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
+            onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
           />
 
           <input
@@ -590,12 +758,20 @@ function App() {
 
             style={{
               width: "100%",
-              padding: "12px",
-              marginBottom: "20px",
-              borderRadius: "10px",
-              border: "none",
+              padding: "12px 16px",
+              marginBottom: "24px",
+              borderRadius: "8px",
+              border: "1px solid #3a4a5a",
+              backgroundColor: "#2a3a4a",
+              color: "#e0e0e0",
+              fontSize: "14px",
+              fontFamily: "inherit",
+              outline: "none",
+              transition: "border-color 0.2s ease",
               boxSizing: "border-box"
             }}
+            onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
+            onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
           />
 
           <button
@@ -603,14 +779,19 @@ function App() {
 
             style={{
               width: "100%",
-              padding: "12px",
-              borderRadius: "10px",
+              padding: "12px 16px",
+              marginBottom: "16px",
+              borderRadius: "8px",
               border: "none",
-              backgroundColor: "#2563eb",
+              backgroundColor: "#0066ff",
               color: "white",
-              fontWeight: "bold",
-              cursor: "pointer"
+              fontWeight: "600",
+              fontSize: "14px",
+              cursor: "pointer",
+              transition: "background-color 0.2s ease"
             }}
+            onMouseEnter={(e) => (e.target.style.backgroundColor = "#0052cc")}
+            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0066ff")}
           >
             {
               isSignup
@@ -625,10 +806,15 @@ function App() {
             }
 
             style={{
-              marginTop: "20px",
+              marginTop: "0",
               textAlign: "center",
-              cursor: "pointer"
+              cursor: "pointer",
+              color: "#ffffff",
+              fontSize: "14px",
+              transition: "color 0.2s ease"
             }}
+            onMouseEnter={(e) => (e.style.color = "#b0b0b0")}
+            onMouseLeave={(e) => (e.style.color = "#ffffff")}
           >
 
             {
@@ -650,19 +836,21 @@ function App() {
     <div style={{
       display: "flex",
       height: "100vh",
-      backgroundColor: "#0f172a",
+      backgroundColor: "#1a2332",
       color: "white",
-      fontFamily: "Arial"
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
     }}>
 
       {/* SIDEBAR */}
 
       <div style={{
-        width: "260px",
-        backgroundColor: "#111827",
-        padding: "20px",
-        borderRight: "1px solid #333",
-        overflowY: "auto"
+        width: "200px",
+        backgroundColor: "#1a2332",
+        padding: "0",
+        borderRight: "1px solid #2a3a4a",
+        overflowY: "auto",
+        display: "flex",
+        flexDirection: "column"
       }}>
 
         {/* NEW CHAT */}
@@ -670,16 +858,19 @@ function App() {
         <button
           onClick={createNewChat}
           style={{
-            width: "100%",
-            padding: "12px",
-            borderRadius: "12px",
-            marginBottom: "20px",
+            margin: "16px 12px",
+            padding: "10px 16px",
+            borderRadius: "8px",
             cursor: "pointer",
-            border: "none",
-            backgroundColor: "#374151",
+            border: "1px solid #2a3a4a",
+            backgroundColor: "transparent",
             color: "white",
-            fontWeight: "bold"
+            fontWeight: "600",
+            fontSize: "13px",
+            transition: "all 0.2s ease"
           }}
+          onMouseEnter={(e) => (e.target.style.backgroundColor = "#2a3a4a")}
+          onMouseLeave={(e) => (e.target.style.backgroundColor = "transparent")}
         >
           + New Chat
         </button>
@@ -689,23 +880,27 @@ function App() {
           onClick={logout}
 
           style={{
-            width: "100%",
-            padding: "10px",
-            borderRadius: "10px",
-            marginBottom: "20px",
+            margin: "12px",
+            padding: "10px 16px",
+            borderRadius: "8px",
             cursor: "pointer",
             border: "none",
-            backgroundColor: "#dc2626",
+            backgroundColor: "#ff3333",
             color: "white",
-            fontWeight: "bold"
+            fontWeight: "600",
+            fontSize: "13px",
+            transition: "background-color 0.2s ease"
           }}
+          onMouseEnter={(e) => (e.target.style.backgroundColor = "#e63333")}
+          onMouseLeave={(e) => (e.target.style.backgroundColor = "#ff3333")}
         >
           Logout
         </button>
 
         {/* CHAT LIST */}
 
-        {chats.map((chat) => (
+        <div style={{ padding: "0 12px", flex: 1, overflowY: "auto" }}>
+          {chats.map((chat) => (
 
           <div
             key={chat.id}
@@ -716,13 +911,25 @@ function App() {
                 "space-between",
 
               padding: "12px",
-              marginBottom: "10px",
-              borderRadius: "12px",
-
+              marginBottom: "8px",
+              borderRadius: "8px",
+              fontSize: "13px",
               backgroundColor:
                 currentChatId === chat.id
-                  ? "#2563eb"
-                  : "#1e293b"
+                  ? "#0066ff"
+                  : "transparent",
+              border: currentChatId === chat.id ? "none" : "none",
+              transition: "all 0.2s ease"
+            }}
+            onMouseEnter={(e) => {
+              if (currentChatId !== chat.id) {
+                e.currentTarget.style.backgroundColor = "#2a3a4a";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentChatId !== chat.id) {
+                e.currentTarget.style.backgroundColor = "transparent";
+              }
             }}
           >
 
@@ -748,43 +955,67 @@ function App() {
                 marginLeft: "10px",
                 background: "transparent",
                 border: "none",
-                color: "white",
+                color: "#ffffff",
                 cursor: "pointer",
-                fontSize: "16px"
+                fontSize: "14px",
+                padding: "4px 8px",
+                transition: "color 0.2s ease"
               }}
+              onMouseEnter={(e) => (e.target.style.color = "#ff6666")}
+              onMouseLeave={(e) => (e.target.style.color = "#ffffff")}
             >
               ✕
             </button>
 
           </div>
         ))}
+        </div>
         <hr style={{
-          margin: "20px 0",
-          borderColor: "#333"
+          margin: "12px 0",
+          borderColor: "#2a3a4a",
+          border: "none",
+          borderTop: "1px solid #2a3a4a"
         }} />
 
         <h3 style={{
-          marginBottom: "15px"
+          marginBottom: "12px",
+          padding: "0 12px",
+          fontSize: "12px",
+          fontWeight: "700",
+          color: "#ffffff",
+          textTransform: "uppercase",
+          letterSpacing: "0.5px",
+          margin: "12px 12px 12px 12px"
         }}>
           Knowledge Base
         </h3>
 
-        <div>
+        <div style={{ padding: "0 12px", flex: 1, overflowY: "auto" }}>
 
           {documents.map((doc, index) => (
 
             <div
               key={index}
               style={{
-                backgroundColor: "#1e293b",
+                backgroundColor: "#2a3a4a",
+                border: "1px solid #3a4a5a",
                 padding: "10px",
-                borderRadius: "10px",
-                marginBottom: "10px",
-                fontSize: "14px",
+                borderRadius: "6px",
+                marginBottom: "8px",
+                fontSize: "12px",
                 overflowWrap: "break-word",
                 display: "flex",
                 justifyContent: "space-between",
-                alignItems: "center"
+                alignItems: "center",
+                transition: "all 0.2s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "#3a4a5a";
+                e.currentTarget.style.borderColor = "#0066ff";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "#2a3a4a";
+                e.currentTarget.style.borderColor = "#3a4a5a";
               }}
             >
               <span
@@ -796,8 +1027,8 @@ function App() {
                   flex: 1,
                   color:
                     selectedDocument === doc
-                      ? "#60a5fa"
-                      : "white"
+                      ? "#0066ff"
+                      : "#e0e0e0"
                 }}
               >
                 📄 {doc}
@@ -807,12 +1038,14 @@ function App() {
                 style={{
                   background: "transparent",
                   border: "none",
-                  color: "#ef4444",
+                  color: "#ff6666",
                   cursor: "pointer",
-                  fontSize: "16px",
-                  padding: "0",
-                  marginLeft: "10px"
+                  fontSize: "14px",
+                  padding: "4px 8px",
+                  transition: "color 0.2s ease"
                 }}
+                onMouseEnter={(e) => (e.target.style.color = "#ff8888")}
+                onMouseLeave={(e) => (e.target.style.color = "#ff6666")}
               >
                 ✕
               </button>
@@ -875,7 +1108,7 @@ function App() {
             maxWidth: "800px"
           }}>
             <Document
-              file={`http://127.0.0.1:8000/uploads/${selectedPdf}`}
+              file={`http://192.168.1.2:8000/uploads/${selectedPdf}`}
               onLoadSuccess={onDocumentLoadSuccess}
             >
               <Page pageNumber={currentPage} />
@@ -931,24 +1164,36 @@ function App() {
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        padding: "20px"
+        backgroundColor: "#1a2332"
       }}>
 
         {/* HEADER */}
 
-        <h1 style={{
-          textAlign: "center",
-          marginBottom: "20px"
+        <div style={{
+          backgroundColor: "transparent",
+          padding: "24px 32px",
+          borderBottom: "1px solid #2a3a4a",
+          textAlign: "center"
         }}>
-          Personal AI Cloud
-        </h1>
+          <h1 style={{
+            fontSize: "32px",
+            fontWeight: "700",
+            color: "#ffffff",
+            margin: "0"
+          }}>
+            Personal AI Cloud
+          </h1>
+        </div>
 
         {/* CHAT AREA */}
 
         <div style={{
           flex: 1,
           overflowY: "auto",
-          paddingRight: "10px"
+          padding: "24px 32px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px"
         }}>
 
           {currentChat?.messages.map(
@@ -964,41 +1209,76 @@ function App() {
                       ? "flex-end"
                       : "flex-start",
 
-                  marginBottom: "15px"
+                  gap: "12px"
                 }}
               >
+                {msg.role === "ai" && (
+                  <div
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      backgroundColor: "#000000",
+                      color: "#0066ff",
+                      borderRadius: "6px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      flexShrink: 0
+                    }}
+                  >
+                    AI
+                  </div>
+                )}
 
-                <div
-                  style={{
-                    backgroundColor:
-                      msg.role === "user"
-                        ? "#2563eb"
-                        : "#1e293b",
+                <div>
+                  <div
+                    style={{
+                      backgroundColor:
+                        msg.role === "user"
+                          ? "#0066ff"
+                          : "#2a3a4a",
 
-                    padding: "15px",
-                    borderRadius: "15px",
-                    maxWidth: "70%",
-                    lineHeight: "1.5"
-                  }}
-                >
+                      color:
+                        msg.role === "user"
+                          ? "#ffffff"
+                          : "#e0e0e0",
 
-                  <strong>
-                    {msg.role === "user"
-                      ? "You"
-                      : "AI"}
-                  </strong>
-
-                  <p style={{
-                    marginTop: "8px",
-                    whiteSpace: "pre-wrap"
-                  }}>
+                      padding: "12px 16px",
+                      borderRadius: "8px",
+                      maxWidth: "70%",
+                      lineHeight: "1.5",
+                      border: msg.role === "user" ? "none" : "1px solid #3a4a5a",
+                      wordWrap: "break-word"
+                    }}
+                  >
                     {msg.content}
-                  </p>
-
+                  </div>
                 </div>
 
               </div>
             )
+          )}
+
+          {isGenerating && (
+
+            <div style={{
+              marginBottom: "20px"
+            }}>
+
+              <div style={{
+                backgroundColor: "#1e293b",
+                padding: "15px",
+                borderRadius: "15px",
+                width: "120px"
+              }}>
+
+                AI is typing...
+
+              </div>
+
+            </div>
           )}
 
         </div>
@@ -1006,51 +1286,94 @@ function App() {
         {/* INPUT AREA */}
 
         <div style={{
-          marginTop: "20px"
+          backgroundColor: "#1a2332",
+          borderTop: "1px solid #2a3a4a",
+          padding: "20px 32px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px"
         }}>
 
           {/* ACTIVE KNOWLEDGE BASE */}
-          <p style={{ marginBottom: "15px" }}>
+          <div style={{ marginBottom: "8px" }}>
 
-            Active Knowledge Base:
-            <br />
+            <div style={{
+              fontSize: "13px",
+              fontWeight: "600",
+              color: "#b0b0b0",
+              marginBottom: "8px"
+            }}>
+              Active Knowledge Base:
+            </div>
 
-            <button
-              onClick={() =>
-                setSelectedDocument(null)
-              }
-              style={{
-                padding: "8px 12px",
-                borderRadius: "6px",
-                border: "1px solid #60a5fa",
-                backgroundColor:
-                  !selectedDocument
-                    ? "#60a5fa"
-                    : "transparent",
-                color:
-                  !selectedDocument
-                    ? "white"
-                    : "#60a5fa",
-                cursor: "pointer",
-                marginRight: "10px",
-                marginTop: "8px"
-              }}
-            >
-              All PDFs
-            </button>
-
-            {selectedDocument && (
-              <span
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                onClick={() =>
+                  setSelectedDocument(null)
+                }
                 style={{
-                  color: "#93c5fd",
-                  fontSize: "14px"
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  border: "none",
+                  backgroundColor:
+                    !selectedDocument
+                      ? "#0066ff"
+                      : "#3a4a5a",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseEnter={(e) => {
+                  if (selectedDocument) {
+                    e.target.style.backgroundColor = "#4a5a6a";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedDocument) {
+                    e.target.style.backgroundColor = "#3a4a5a";
+                  }
                 }}
               >
-                Selected: <strong>{selectedDocument}</strong>
-              </span>
-            )}
+                All PDFs
+              </button>
 
-          </p>
+              <button
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  border: "none",
+                  backgroundColor:
+                    selectedDocument
+                      ? "#0066ff"
+                      : "#3a4a5a",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  transition: "all 0.2s ease"
+                }}
+                onMouseEnter={(e) => {
+                  if (!selectedDocument) {
+                    e.target.style.backgroundColor = "#4a5a6a";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!selectedDocument) {
+                    e.target.style.backgroundColor = "#3a4a5a";
+                  }
+                }}
+              >
+                Choose Files
+              </button>
+
+              <span style={{ fontSize: "12px", color: "#999999" }}>
+                No file chosen
+              </span>
+            </div>
+
+          </div>
 
           {/* MULTI PDF UPLOAD */}
 
@@ -1069,52 +1392,81 @@ function App() {
               }}
             />
 
-            <p>
-              {uploadMessage}
-            </p>
+            {uploadMessage && (
+              <p style={{ color: "#0066ff", fontSize: "12px" }}>
+                {uploadMessage}
+              </p>
+            )}
 
           </div>
 
-          {/* TEXTAREA */}
+          {/* INPUT GROUP */}
 
-          <textarea
-            rows="4"
-            placeholder="Ask anything..."
-            value={prompt}
-            onChange={(e) =>
-              setPrompt(e.target.value)
-            }
-            style={{
-              width: "100%",
-              padding: "15px",
-              borderRadius: "15px",
-              border: "1px solid #444",
-              backgroundColor: "#1e293b",
-              color: "white",
-              resize: "none",
-              fontSize: "16px"
-            }}
-          />
+          <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
+            <input
+              placeholder="Ask anything..."
+              value={prompt}
+              onChange={(e) =>
+                setPrompt(e.target.value)
+              }
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendPrompt();
+                }
+              }}
+              style={{
+                flex: 1,
+                padding: "12px 16px",
+                border: "1px solid #3a4a5a",
+                borderRadius: "6px",
+                backgroundColor: "#2a3a4a",
+                color: "#e0e0e0",
+                resize: "none",
+                fontSize: "13px",
+                fontFamily: "inherit",
+                outline: "none",
+                transition: "border-color 0.2s ease"
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
+              onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
+            />
 
-          <br /><br />
+            {/* SEND BUTTON */}
 
-          {/* SEND BUTTON */}
-
-          <button
-            onClick={sendPrompt}
-            style={{
-              padding: "12px 25px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              backgroundColor: "#2563eb",
-              color: "white",
-              fontWeight: "bold",
-              fontSize: "15px"
-            }}
-          >
-            Ask AI
-          </button>
+            <button
+              onClick={sendPrompt}
+              disabled={isGenerating}
+              style={{
+                padding: "10px 28px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: isGenerating ? "not-allowed" : "pointer",
+                backgroundColor: "#0066ff",
+                color: "white",
+                fontWeight: "600",
+                fontSize: "13px",
+                transition: "background-color 0.2s ease",
+                opacity: isGenerating ? 0.6 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!isGenerating) {
+                  e.target.style.backgroundColor = "#0052cc";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isGenerating) {
+                  e.target.style.backgroundColor = "#0066ff";
+                }
+              }}
+            >
+              {
+                isGenerating
+                  ? "Generating..."
+                  : "Ask AI"
+              }
+            </button>
+          </div>
 
         </div>
 

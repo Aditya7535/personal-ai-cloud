@@ -29,4 +29,4 @@ chroma_db/
 uploads/
 __pycache__/
 .env
-users.db
+users.db    

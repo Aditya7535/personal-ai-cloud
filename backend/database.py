@@ -46,6 +46,23 @@ class User(Base):
 
     password = Column(String)
 
+# CHAT MODEL
+class Chat(Base):
+
+    __tablename__ = "chats"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    username = Column(String)
+
+    title = Column(String)
+
+    messages = Column(String)
+
 # CREATE TABLES
 Base.metadata.create_all(
     bind=engine
