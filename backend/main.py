@@ -105,11 +105,17 @@ def signup(user: UserRequest):
 
     db.commit()
 
+    # CREATE TOKEN
+    token = create_access_token({
+        "sub": user.username
+    })
+
     db.close()
 
     return {
-        "message":
-        "User created successfully"
+        "access_token": token,
+
+        "token_type": "bearer"
     }
 
 

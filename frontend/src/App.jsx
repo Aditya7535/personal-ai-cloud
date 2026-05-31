@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Document, Page } from "react-pdf";
 import { pdfjs } from "react-pdf";
+import { API_BASE_URL } from "./config";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
@@ -257,7 +258,7 @@ function App() {
         : "login";
 
       const response = await fetch(
-        `http://192.168.1.2:8000/${endpoint}`,
+        `${API_BASE_URL}/${endpoint}`,
         {
           method: "POST",
 
@@ -316,7 +317,7 @@ function App() {
     try {
 
       const response = await fetch(
-        `http://192.168.1.2:8000/documents`,
+        `${API_BASE_URL}/documents`,
         {
           headers: {
             "Authorization": `Bearer ${localStorage.getItem("token")}`
@@ -339,7 +340,7 @@ function App() {
   const viewDocument = (filename) => {
 
     const url =
-      `http://192.168.1.2:8000/uploads/${filename}`;
+      `${API_BASE_URL}/uploads/${filename}`;
 
     window.open(url, "_blank");
   };
@@ -350,7 +351,7 @@ function App() {
     try {
 
       await fetch(
-        `http://192.168.1.2:8000/documents/${filename}`,
+        `${API_BASE_URL}/documents/${filename}`,
         {
           method: "DELETE"
         }
@@ -420,7 +421,7 @@ function App() {
         formData.append("file", file);
 
         await fetch(
-          "http://192.168.1.2:8000/upload",
+          `${API_BASE_URL}/upload`,
           {
             method: "POST",
             headers: {
@@ -453,7 +454,7 @@ function App() {
     try {
 
       const response = await fetch(
-        "http://192.168.1.2:8000/load-chats",
+        `${API_BASE_URL}/load-chats`,
         {
 
           headers: {
@@ -512,7 +513,7 @@ function App() {
       for (const chat of updatedChats) {
 
         await fetch(
-          "http://192.168.1.2:8000/save-chat",
+          `${API_BASE_URL}/save-chat`,
           {
 
             method: "POST",
@@ -590,7 +591,7 @@ function App() {
 
       // STREAMING REQUEST
       const response = await fetch(
-        "http://192.168.1.2:8000/chat",
+        `${API_BASE_URL}/chat`,
         {
           method: "POST",
           headers: {
@@ -1108,7 +1109,7 @@ function App() {
             maxWidth: "800px"
           }}>
             <Document
-              file={`http://192.168.1.2:8000/uploads/${selectedPdf}`}
+              file={`${API_BASE_URL}/uploads/${selectedPdf}`}
               onLoadSuccess={onDocumentLoadSuccess}
             >
               <Page pageNumber={currentPage} />
