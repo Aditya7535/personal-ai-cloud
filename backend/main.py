@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, Header
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -83,10 +83,20 @@ def signup(user: UserRequest):
 
     if existing_user:
 
-        return {
-            "message":
-            "Username already exists"
-        }
+        db.close()
+
+        raise HTTPException(
+            status_code=400,
+            detail="Username already exists"
+        )
+
+    # VALIDATE INPUT
+    if not user.username or not user.password:
+        db.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Username and password required"
+        )
 
     # HASH PASSWORD
     hashed_password = hash_password(
@@ -125,6 +135,14 @@ def login(user: UserRequest):
 
     db = SessionLocal()
 
+    # VALIDATE INPUT
+    if not user.username or not user.password:
+        db.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Username and password required"
+        )
+
     # FIND USER
     existing_user = db.query(User).filter(
         User.username == user.username
@@ -133,10 +151,12 @@ def login(user: UserRequest):
     # INVALID USER
     if not existing_user:
 
-        return {
-            "message":
-            "Invalid username"
-        }
+        db.close()
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
 
     # VERIFY PASSWORD
     valid_password = verify_password(
@@ -148,10 +168,12 @@ def login(user: UserRequest):
 
     if not valid_password:
 
-        return {
-            "message":
-            "Invalid password"
-        }
+        db.close()
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
 
     # CREATE TOKEN
     token = create_access_token({

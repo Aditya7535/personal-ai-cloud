@@ -251,11 +251,19 @@ function App() {
   // HANDLE AUTH
   const handleAuth = async () => {
 
+    // VALIDATE INPUT
+    if (!username.trim() || !password.trim()) {
+      alert("Please enter username and password");
+      return;
+    }
+
     try {
 
       const endpoint = isSignup
         ? "signup"
         : "login";
+
+      console.log(`Attempting to ${endpoint} at: ${API_BASE_URL}/${endpoint}`);
 
       const response = await fetch(
         `${API_BASE_URL}/${endpoint}`,
@@ -278,7 +286,14 @@ function App() {
 
       const data = await response.json();
 
-      // LOGIN
+      console.log("Auth response:", data);
+
+      // CHECK FOR ERROR STATUS
+      if (!response.ok) {
+        throw new Error(data.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      // LOGIN SUCCESS
       if (data.access_token) {
 
         localStorage.setItem(
@@ -295,18 +310,24 @@ function App() {
 
         setIsLoggedIn(true);
 
+        setUsername("");
+
+        setPassword("");
+
         loadChats();
 
         fetchDocuments();
 
       } else {
 
-        alert(data.message);
+        alert(data.message || "Authentication failed");
       }
 
     } catch (error) {
 
-      console.log(error);
+      console.error("Auth error:", error);
+
+      alert(`Error: ${error.message}`);
 
     }
   };
