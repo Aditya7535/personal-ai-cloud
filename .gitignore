@@ -2,31 +2,39 @@
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
 
 # Node
 node_modules/
+dist/
+.vite/
 
 # Environment
 .env
+.env.local
+.env.*.local
 
 # Database
+*.db
 chroma_db/
-
-# Uploads
 uploads/
 
-# Logs
-*.log
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+.obsidian/
 
-
-venv/
-node_modules/
-chroma_db/
-uploads/
-__pycache__/
-.env
-users.db    
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
