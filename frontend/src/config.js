@@ -15,7 +15,8 @@ export const getApiBaseUrl = () => {
     return 'http://localhost:8000';
   }
 
-  return '';
+  // Deployed / production fallback (HTTPS tunnel to backend)
+  return 'https://personal-ai-cloud-aditya.loca.lt';
 };
 
 export const setApiBaseUrl = (url) => {
