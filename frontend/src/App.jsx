@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { Document, Page } from "react-pdf";
 import { pdfjs } from "react-pdf";
-import { API_BASE_URL } from "./config";
+import { API_BASE_URL, getApiBaseUrl, setApiBaseUrl, isPlaceholderUrl } from "./config";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// Modern unpkg .mjs worker prevents 404 on pdfjs-dist 5.x
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 function App() {
 
@@ -71,6 +72,24 @@ function App() {
     );
 
   const [isSignup, setIsSignup] =
+    useState(false);
+
+  const [authError, setAuthError] =
+    useState("");
+
+  const [isAuthLoading, setIsAuthLoading] =
+    useState(false);
+
+  const [showServerConfig, setShowServerConfig] =
+    useState(false);
+
+  const [serverUrlInput, setServerUrlInput] =
+    useState(getApiBaseUrl());
+
+  const [connectionTestMsg, setConnectionTestMsg] =
+    useState("");
+
+  const [isTestingConnection, setIsTestingConnection] =
     useState(false);
 
   // PDF UPLOAD MESSAGE
@@ -248,25 +267,64 @@ function App() {
     }
   };
 
+  // TEST BACKEND CONNECTION
+  const testBackendConnection = async (testUrl) => {
+    setIsTestingConnection(true);
+    setConnectionTestMsg("Connecting to server...");
+    const url = (testUrl || getApiBaseUrl() || "").replace(/\/+$/, "");
+    if (!url) {
+      setConnectionTestMsg("⚠️ No backend URL configured. Enter an address like https://your-backend.onrender.com");
+      setIsTestingConnection(false);
+      return;
+    }
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(`${url}/health`, { signal: controller.signal })
+        .catch(() => fetch(`${url}/`, { signal: controller.signal }));
+      clearTimeout(timeoutId);
+      if (res && res.ok) {
+        setConnectionTestMsg("✅ Connected! Backend is online and responding.");
+      } else {
+        setConnectionTestMsg(`⚠️ Backend responded with HTTP status ${res ? res.status : "unknown"}`);
+      }
+    } catch (err) {
+      setConnectionTestMsg(`❌ Cannot connect: ${err.message}. Is your backend running?`);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  // SAVE CUSTOM BACKEND URL
+  const handleSaveServerUrl = () => {
+    setApiBaseUrl(serverUrlInput);
+    testBackendConnection(serverUrlInput);
+  };
+
   // HANDLE AUTH
   const handleAuth = async () => {
 
     // VALIDATE INPUT
     if (!username.trim() || !password.trim()) {
-      alert("Please enter username and password");
+      setAuthError("Please enter both username and password");
       return;
     }
 
+    setAuthError("");
+    setIsAuthLoading(true);
+
+    const currentBase = getApiBaseUrl();
+    const endpoint = isSignup
+      ? "signup"
+      : "login";
+    const fullUrl = `${currentBase}/${endpoint}`;
+
+    console.log(`Attempting ${endpoint} at: ${fullUrl}`);
+
     try {
 
-      const endpoint = isSignup
-        ? "signup"
-        : "login";
-
-      console.log(`Attempting to ${endpoint} at: ${API_BASE_URL}/${endpoint}`);
-
       const response = await fetch(
-        `${API_BASE_URL}/${endpoint}`,
+        fullUrl,
         {
           method: "POST",
 
@@ -276,21 +334,19 @@ function App() {
           },
 
           body: JSON.stringify({
-
-            username,
-
-            password
+            username: username.trim(),
+            password: password.trim()
           })
         }
       );
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       console.log("Auth response:", data);
 
       // CHECK FOR ERROR STATUS
       if (!response.ok) {
-        throw new Error(data.detail || `HTTP error! status: ${response.status}`);
+        throw new Error(data.detail || `Authentication failed (${response.status})`);
       }
 
       // LOGIN SUCCESS
@@ -303,10 +359,10 @@ function App() {
 
         localStorage.setItem(
           "username",
-          username
+          username.trim()
         );
 
-        setCurrentUser(username);
+        setCurrentUser(username.trim());
 
         setIsLoggedIn(true);
 
@@ -314,45 +370,63 @@ function App() {
 
         setPassword("");
 
+        setAuthError("");
+
         loadChats();
 
         fetchDocuments();
 
       } else {
 
-        alert(data.message || "Authentication failed");
+        setAuthError(data.message || "Authentication failed: No token received");
       }
 
     } catch (error) {
 
       console.error("Auth error:", error);
 
-      alert(`Error: ${error.message}`);
+      let errorMsg = error.message;
+      if (errorMsg.includes("Failed to fetch") || errorMsg.includes("NetworkError") || errorMsg.includes("Load failed")) {
+        errorMsg = `Could not reach backend at "${currentBase || '(empty URL)'}". Please ensure your FastAPI backend is running. You can configure the Backend Server URL below.`;
+      }
 
+      setAuthError(errorMsg);
+
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
   // FETCH DOCUMENTS
   const fetchDocuments = async () => {
 
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
     try {
 
       const response = await fetch(
-        `${API_BASE_URL}/documents`,
+        `${getApiBaseUrl()}/documents`,
         {
           headers: {
-            "Authorization": `Bearer ${localStorage.getItem("token")}`
+            "Authorization": `Bearer ${token}`
           }
         }
       );
 
+      if (response.status === 401) {
+        logout();
+        return;
+      }
+
       const data = await response.json();
 
-      setDocuments(data.documents);
+      setDocuments(Array.isArray(data?.documents) ? data.documents : []);
 
     } catch (error) {
 
-      console.log(error);
+      console.log("Fetch documents error:", error);
+      setDocuments([]);
 
     }
   };
@@ -361,7 +435,7 @@ function App() {
   const viewDocument = (filename) => {
 
     const url =
-      `${API_BASE_URL}/uploads/${filename}`;
+      `${getApiBaseUrl()}/uploads/${filename}`;
 
     window.open(url, "_blank");
   };
@@ -372,14 +446,14 @@ function App() {
     try {
 
       await fetch(
-        `${API_BASE_URL}/documents/${filename}`,
+        `${getApiBaseUrl()}/documents/${filename}`,
         {
           method: "DELETE"
         }
       );
 
       setDocuments((prev) =>
-        prev.filter((doc) => doc !== filename)
+        (prev || []).filter((doc) => doc !== filename)
       );
 
     } catch (error) {
@@ -442,7 +516,7 @@ function App() {
         formData.append("file", file);
 
         await fetch(
-          `${API_BASE_URL}/upload`,
+          `${getApiBaseUrl()}/upload`,
           {
             method: "POST",
             headers: {
@@ -472,26 +546,35 @@ function App() {
   // LOAD CHATS
   const loadChats = async () => {
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setChatsLoaded(true);
+      return;
+    }
+
     try {
 
       const response = await fetch(
-        `${API_BASE_URL}/load-chats`,
+        `${getApiBaseUrl()}/load-chats`,
         {
 
           headers: {
 
             Authorization:
-              `Bearer ${localStorage.getItem(
-                "token"
-              )}`
+              `Bearer ${token}`
           }
         }
       );
 
+      if (response.status === 401) {
+        logout();
+        return;
+      }
+
       const data = await response.json();
 
-      // IF NO CHATS
-      if (data.chats.length === 0) {
+      // IF NO CHATS OR INVALID FORMAT
+      if (!Array.isArray(data?.chats) || data.chats.length === 0) {
 
         setChatsLoaded(true);
 
@@ -518,7 +601,8 @@ function App() {
 
     } catch (error) {
 
-      console.log(error);
+      console.log("Error loading chats:", error);
+      setChatsLoaded(true);
 
     }
   };
@@ -534,7 +618,7 @@ function App() {
       for (const chat of updatedChats) {
 
         await fetch(
-          `${API_BASE_URL}/save-chat`,
+          `${getApiBaseUrl()}/save-chat`,
           {
 
             method: "POST",
@@ -612,7 +696,7 @@ function App() {
 
       // STREAMING REQUEST
       const response = await fetch(
-        `${API_BASE_URL}/chat`,
+        `${getApiBaseUrl()}/chat`,
         {
           method: "POST",
           headers: {
@@ -628,6 +712,26 @@ function App() {
           })
         }
       );
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const errMsg = errJson.detail || `Server error (${response.status})`;
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.id !== currentChatId) return chat;
+            return {
+              ...chat,
+              messages: chat.messages.map((m, i) =>
+                i === chat.messages.length - 1
+                  ? { ...m, content: `⚠️ Server Error (${response.status}): ${errMsg}. Check that Personal AI Cloud backend is running.` }
+                  : m
+              )
+            };
+          })
+        );
+        setIsGenerating(false);
+        return;
+      }
 
       const reader = response.body.getReader();
 
@@ -686,147 +790,189 @@ function App() {
   // LOGIN SCREEN
   if (!isLoggedIn) {
 
+    const currentActiveApi = getApiBaseUrl();
+
     return (
 
       <div style={{
-        height: "100vh",
+        minHeight: "100vh",
         display: "flex",
+        flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
         backgroundColor: "#0a1628",
         color: "white",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        padding: "20px"
       }}>
 
         <div style={{
-          width: "380px",
+          width: "100%",
+          maxWidth: "400px",
           backgroundColor: "#1a2f4a",
-          padding: "40px 36px",
+          padding: "36px 32px",
           borderRadius: "16px",
-          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)"
+          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)",
+          boxSizing: "border-box"
         }}>
 
           <h1 style={{
             textAlign: "center",
-            marginBottom: "8px",
-            fontSize: "32px",
+            marginBottom: "6px",
+            fontSize: "30px",
             fontWeight: "700",
-            margin: "0 0 8px 0"
+            margin: "0 0 6px 0"
           }}>
             Personal AI
           </h1>
           <h1 style={{
             textAlign: "center",
-            marginBottom: "20px",
-            fontSize: "32px",
+            marginBottom: "16px",
+            fontSize: "30px",
             fontWeight: "700",
-            margin: "0 0 20px 0"
+            margin: "0 0 16px 0",
+            color: "#3b82f6"
           }}>
             Cloud
           </h1>
 
           <h2 style={{
             textAlign: "center",
-            marginBottom: "24px",
+            marginBottom: "20px",
             fontSize: "16px",
             fontWeight: "600",
             color: "#e0e0e0",
-            margin: "0 0 24px 0"
+            margin: "0 0 20px 0"
           }}>
             {
               isSignup
-                ? "Signup"
-                : "Login"
+                ? "Create an Account"
+                : "Welcome Back - Login"
             }
           </h2>
 
-          <input
-            type="text"
-            placeholder="Username"
-
-            value={username}
-
-            onChange={(e) =>
-              setUsername(e.target.value)
-            }
-
-            style={{
-              width: "100%",
-              padding: "12px 16px",
+          {/* AUTH ERROR ALERT */}
+          {authError && (
+            <div style={{
+              backgroundColor: "rgba(239, 68, 68, 0.15)",
+              border: "1px solid #ef4444",
+              borderRadius: "8px",
+              padding: "12px",
               marginBottom: "16px",
+              fontSize: "13px",
+              lineHeight: "1.4",
+              color: "#fca5a5"
+            }}>
+              {authError}
+            </div>
+          )}
+
+          {/* BACKEND NOT CONFIGURED WARNING */}
+          {(!currentActiveApi || isPlaceholderUrl(currentActiveApi)) && (
+            <div style={{
+              backgroundColor: "rgba(245, 158, 11, 0.15)",
+              border: "1px solid #f59e0b",
               borderRadius: "8px",
-              border: "1px solid #3a4a5a",
-              backgroundColor: "#2a3a4a",
-              color: "#e0e0e0",
-              fontSize: "14px",
-              fontFamily: "inherit",
-              outline: "none",
-              transition: "border-color 0.2s ease",
-              boxSizing: "border-box"
-            }}
-            onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
-            onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
-          />
-
-          <input
-            type="password"
-            placeholder="Password"
-
-            value={password}
-
-            onChange={(e) =>
-              setPassword(e.target.value)
-            }
-
-            style={{
-              width: "100%",
-              padding: "12px 16px",
-              marginBottom: "24px",
-              borderRadius: "8px",
-              border: "1px solid #3a4a5a",
-              backgroundColor: "#2a3a4a",
-              color: "#e0e0e0",
-              fontSize: "14px",
-              fontFamily: "inherit",
-              outline: "none",
-              transition: "border-color 0.2s ease",
-              boxSizing: "border-box"
-            }}
-            onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
-            onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
-          />
-
-          <button
-            onClick={handleAuth}
-
-            style={{
-              width: "100%",
-              padding: "12px 16px",
+              padding: "10px 12px",
               marginBottom: "16px",
-              borderRadius: "8px",
-              border: "none",
-              backgroundColor: "#0066ff",
-              color: "white",
-              fontWeight: "600",
-              fontSize: "14px",
-              cursor: "pointer",
-              transition: "background-color 0.2s ease"
-            }}
-            onMouseEnter={(e) => (e.target.style.backgroundColor = "#0052cc")}
-            onMouseLeave={(e) => (e.target.style.backgroundColor = "#0066ff")}
-          >
-            {
-              isSignup
-                ? "Signup"
-                : "Login"
-            }
-          </button>
+              fontSize: "12px",
+              lineHeight: "1.4",
+              color: "#fde68a"
+            }}>
+              ⚠️ Backend URL is not connected. Use <strong>Server Settings</strong> below to set your deployed FastAPI URL.
+            </div>
+          )}
+
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            if (!isAuthLoading) handleAuth();
+          }}>
+
+            <input
+              type="text"
+              placeholder="Username"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                marginBottom: "14px",
+                borderRadius: "8px",
+                border: "1px solid #3a4a5a",
+                backgroundColor: "#2a3a4a",
+                color: "#e0e0e0",
+                fontSize: "14px",
+                fontFamily: "inherit",
+                outline: "none",
+                transition: "border-color 0.2s ease",
+                boxSizing: "border-box"
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
+              onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
+            />
+
+            <input
+              type="password"
+              placeholder="Password"
+              autoComplete={isSignup ? "new-password" : "current-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                marginBottom: "20px",
+                borderRadius: "8px",
+                border: "1px solid #3a4a5a",
+                backgroundColor: "#2a3a4a",
+                color: "#e0e0e0",
+                fontSize: "14px",
+                fontFamily: "inherit",
+                outline: "none",
+                transition: "border-color 0.2s ease",
+                boxSizing: "border-box"
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "#0066ff")}
+              onBlur={(e) => (e.target.style.borderColor = "#3a4a5a")}
+            />
+
+            <button
+              type="submit"
+              disabled={isAuthLoading}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                marginBottom: "16px",
+                borderRadius: "8px",
+                border: "none",
+                backgroundColor: isAuthLoading ? "#2563eb88" : "#0066ff",
+                color: "white",
+                fontWeight: "600",
+                fontSize: "14px",
+                cursor: isAuthLoading ? "not-allowed" : "pointer",
+                transition: "background-color 0.2s ease"
+              }}
+              onMouseEnter={(e) => {
+                if (!isAuthLoading) e.target.style.backgroundColor = "#0052cc";
+              }}
+              onMouseLeave={(e) => {
+                if (!isAuthLoading) e.target.style.backgroundColor = "#0066ff";
+              }}
+            >
+              {
+                isAuthLoading
+                  ? "Please wait..."
+                  : (isSignup ? "Sign Up" : "Log In")
+              }
+            </button>
+
+          </form>
 
           <p
-            onClick={() =>
-              setIsSignup(!isSignup)
-            }
-
+            onClick={() => {
+              setIsSignup(!isSignup);
+              setAuthError("");
+            }}
             style={{
               marginTop: "0",
               textAlign: "center",
@@ -835,17 +981,98 @@ function App() {
               fontSize: "14px",
               transition: "color 0.2s ease"
             }}
-            onMouseEnter={(e) => (e.style.color = "#b0b0b0")}
-            onMouseLeave={(e) => (e.style.color = "#ffffff")}
+            onMouseEnter={(e) => (e.target.style.color = "#93c5fd")}
+            onMouseLeave={(e) => (e.target.style.color = "#ffffff")}
           >
-
             {
               isSignup
-                ? "Already have an account? Login"
-                : "No account? Signup"
+                ? "Already have an account? Log In"
+                : "Don't have an account? Sign Up"
             }
-
           </p>
+
+          {/* BACKEND SERVER SETTINGS TOGGLE */}
+          <div style={{ marginTop: "24px", borderTop: "1px solid #2a3a4a", paddingTop: "16px" }}>
+            <div
+              onClick={() => setShowServerConfig(!showServerConfig)}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                cursor: "pointer",
+                fontSize: "12px",
+                color: "#94a3b8"
+              }}
+            >
+              <span>⚙️ Backend Server Settings</span>
+              <span>{showServerConfig ? "▲ Hide" : "▼ Configure"}</span>
+            </div>
+
+            {showServerConfig && (
+              <div style={{ marginTop: "12px" }}>
+                <label style={{ display: "block", fontSize: "11px", color: "#94a3b8", marginBottom: "4px" }}>
+                  Backend API URL (e.g. Render/Railway URL or http://localhost:8000):
+                </label>
+                <input
+                  type="text"
+                  value={serverUrlInput}
+                  placeholder="http://localhost:8000"
+                  onChange={(e) => setServerUrlInput(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid #3a4a5a",
+                    backgroundColor: "#162235",
+                    color: "white",
+                    fontSize: "12px",
+                    marginBottom: "8px",
+                    boxSizing: "border-box"
+                  }}
+                />
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={handleSaveServerUrl}
+                    style={{
+                      flex: 1,
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      border: "none",
+                      backgroundColor: "#3b82f6",
+                      color: "white",
+                      fontSize: "12px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Save URL
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isTestingConnection}
+                    onClick={() => testBackendConnection(serverUrlInput)}
+                    style={{
+                      flex: 1,
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid #3a4a5a",
+                      backgroundColor: "#2a3a4a",
+                      color: "white",
+                      fontSize: "12px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {isTestingConnection ? "Testing..." : "Test Connection"}
+                  </button>
+                </div>
+                {connectionTestMsg && (
+                  <div style={{ marginTop: "8px", fontSize: "11px", color: "#cbd5e1" }}>
+                    {connectionTestMsg}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
         </div>
 
@@ -922,7 +1149,7 @@ function App() {
         {/* CHAT LIST */}
 
         <div style={{ padding: "0 12px", flex: 1, overflowY: "auto" }}>
-          {chats.map((chat) => (
+          {(chats || []).map((chat) => (
 
           <div
             key={chat.id}
@@ -1014,7 +1241,7 @@ function App() {
 
         <div style={{ padding: "0 12px", flex: 1, overflowY: "auto" }}>
 
-          {documents.map((doc, index) => (
+          {(documents || []).map((doc, index) => (
 
             <div
               key={index}
@@ -1130,7 +1357,7 @@ function App() {
             maxWidth: "800px"
           }}>
             <Document
-              file={`${API_BASE_URL}/uploads/${selectedPdf}`}
+              file={`${getApiBaseUrl()}/uploads/${selectedPdf}`}
               onLoadSuccess={onDocumentLoadSuccess}
             >
               <Page pageNumber={currentPage} />
@@ -1218,7 +1445,7 @@ function App() {
           gap: "16px"
         }}>
 
-          {currentChat?.messages.map(
+          {(currentChat?.messages || []).map(
             (msg, index) => (
 
               <div

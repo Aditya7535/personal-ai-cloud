@@ -5,6 +5,6 @@ python-multipart
 pypdf
 chromadb
 sentence-transformers
-passlib[bcrypt]
+bcrypt
 python-jose
 sqlalchemy

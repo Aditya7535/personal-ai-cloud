@@ -30,6 +30,8 @@ from rag import (
 
 app = FastAPI()
 
+os.makedirs("uploads", exist_ok=True)
+
 app.mount(
     "/uploads",
     StaticFiles(directory="uploads"),
@@ -66,7 +68,18 @@ class UserRequest(BaseModel):
 def home():
 
     return {
-        "message": "Personal AI Cloud Running"
+        "message": "Personal AI Cloud Running",
+        "status": "ok"
+    }
+
+
+# HEALTH CHECK ROUTE
+@app.get("/health")
+def health():
+
+    return {
+        "status": "ok",
+        "service": "Personal AI Cloud API"
     }
 
 
@@ -334,18 +347,26 @@ QUESTION:
 ANSWER:
 """
 
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2")
+
     # STREAM GENERATOR
     def generate():
 
-        response = requests.post(
-            "http://host.docker.internal:11434/api/generate",
-            json={
-                "model": "llama3.2",
-                "prompt": final_prompt,
-                "stream": True
-            },
-            stream=True
-        )
+        try:
+            response = requests.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": final_prompt,
+                    "stream": True
+                },
+                stream=True,
+                timeout=60
+            )
+        except Exception as e:
+            yield f"Error: Could not connect to Ollama at {ollama_url}. Details: {str(e)}"
+            return
 
         # STREAM TOKENS
         for line in response.iter_lines():
