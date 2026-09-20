@@ -1,4 +1,10 @@
 # Personal AI Cloud
+https://personal-ai-cloud-cabd-n7fwos9qp-aditya7535s-projects.vercel.app/
+
+Config link:
+Backend Server Settings, replace the URL with:
+https://pleasant-attacked-mrs-performed.trycloudflare.com
+
 
 A self-hosted AI cloud platform powered by Llama 3.2, FastAPI, React, and ChromaDB.
 
