@@ -15,8 +15,8 @@ export const getApiBaseUrl = () => {
     return 'http://localhost:8000';
   }
 
-  // Deployed / production fallback (HTTPS tunnel to backend)
-  return 'https://personal-ai-cloud-aditya.loca.lt';
+  // Deployed / production fallback (Cloudflare tunnel to backend)
+  return 'https://pleasant-attacked-mrs-performed.trycloudflare.com';
 };
 
 export const setApiBaseUrl = (url) => {
